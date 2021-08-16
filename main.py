@@ -444,6 +444,9 @@ def main():
                     # user that invoked it didn't have permission to use it.
                     if dbcmd == True:
                         pass
+                    # No command found.
+                    elif dbcmd == False:
+                        pass
                     # Execute the command if one was returned.
                     else:
                         sendmsg(dbcmd)
