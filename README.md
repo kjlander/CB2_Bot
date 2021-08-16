@@ -131,7 +131,7 @@ compile the auth URL and print it out in the terminal as follows:
         ?response_type=code'
         &client_id={client_id}'
         &redirect_uri={callback}'
-        &scope=channel:read:subscriptions'
+        &scope=channel:read:subscriptions%20bits:read'
         &state={state}'
 
 This URL needs to be shared with the person whose channel the bot will be joining, and once they visit the URL an 
@@ -139,7 +139,7 @@ authorization page will ask the user to sign up or log into Twitch and allow the
 the bot to accesss their subscriber information.
 
 Once authorization is given, no information about it needs to be (or is) remembered for the given scope(s) (in 
-this case just **read:subscriptions**). This behaviour can be changed by adding:
+this case just **read:subscriptions** and **bits:read**). This behaviour can be changed by adding:
 
     &force_verify=true
 
@@ -149,7 +149,7 @@ If any additional scopes are added, they will need to be authorized as well. In 
 very rarely need to be used, normally the first time the bot is added to a new channel.
 
 #### !delcom
-Deletes custom commands from the database if the command exists. This is a mod-only command.
+Deletes custom commands from the database if the command exists.
 
 ###### Usage:
     !delcom <command name>
