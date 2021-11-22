@@ -1,11 +1,12 @@
 # Purpose: This file contains helper functions for the main CB2 Bot script.
 # Author: Kyle Lander
-# Date: 2021-08
+# Date: 2021-11
 
 
 import hashlib
 import hmac
 import json
+from typing import Any
 import requests
 
 from secrets import token_hex
@@ -15,7 +16,7 @@ from secrets import token_hex
 # This is required to get the correct permissions to access EventSub topics 
 # like subscribe. The function returns the state string it generates so that
 # it can be compared to the one Twitch sends back for verification.
-def authorize(callback, client_id):
+def authorize(callback: str, client_id: str) -> str:
     '''
     Sends a request to Twitch, initiating the OIDC authorization code flow 
     process.
@@ -46,7 +47,7 @@ def authorize(callback, client_id):
 
 
 # Define a function to get an app access token used for subscribing to EventSub topics.
-def get_app_access_token(client_id, secret):
+def get_app_access_token(client_id: str, secret: str) -> str:
     '''
     Gets an app access token from Twitch.
 
@@ -73,7 +74,7 @@ def get_app_access_token(client_id, secret):
 
 
 # Define a function to get data on a twtich user account and return it as JSON.
-def get_user_data(username, auth):
+def get_user_data(username: str, auth: str) -> Any:
     '''
     Gets a user object from Twitch.
 
@@ -92,7 +93,7 @@ def get_user_data(username, auth):
 
 # This function will get a list of all EventSub subscriptions the bot has created and then
 # send a request to delete each one. Use only when you want all subs deleted. 
-def nuke_eventsubs(access_token, client_id):
+def nuke_eventsubs(access_token: str, client_id: str) -> bool:
     '''
     Unsubscribes an application from all EventSub subscriptions.
 
@@ -107,7 +108,7 @@ def nuke_eventsubs(access_token, client_id):
     '''
     headers = {'Client-ID': client_id, 
             'Authorization': 'Bearer ' + access_token}
-            
+
     response = requests.get(url='https://api.twitch.tv/helix/eventsub/subscriptions', headers=headers)
     print(f"Subscriptions: {response.json()}\n")
     subs_json = response.json()
@@ -116,12 +117,12 @@ def nuke_eventsubs(access_token, client_id):
 
         requests.delete(url=f'https://api.twitch.tv/helix/eventsub/subscriptions?id={i["id"]}',
                         headers=headers)
-    
+
     return True
 
 
 # Define a function that subscribes to an EventSub topic.
-def subscribe_to_eventsub(access_token, callback, client_id, secret, user_id, topic):
+def subscribe_to_eventsub(access_token: str, callback: str, client_id: str, secret: str, user_id: str, topic: str) -> None:
     '''
     Subscribes an application to a Twitch EventSub topic by sending a POST
     request to Twitch. The rest of the process is handled by the HTTP server.
@@ -171,7 +172,7 @@ def subscribe_to_eventsub(access_token, callback, client_id, secret, user_id, to
 # 
 #   This function will return True if the signature is verified, and
 #   will return False if the signatures do not match.
-def verify_signature(secret, es_id, es_timestamp, es_body_bytes, es_sig):
+def verify_signature(secret: str, es_id: str, es_timestamp: str, es_body_bytes: bytes, es_sig: str) -> bool:
     '''
     Verifies the signature of an EventSub POST response from Twitch by
     calculating a HMAC-SHA256 signature and comparing it to the signature
@@ -193,7 +194,4 @@ def verify_signature(secret, es_id, es_timestamp, es_body_bytes, es_sig):
     # Calculate an HMAC-SHA256 string from the assembled message.
     calculated_signature = hmac.new(key=secret.encode(), msg=hmac_msg, digestmod=hashlib.sha256).hexdigest()
     # If the signatures match, return True.
-    if calculated_signature == es_sig.removeprefix('sha256='):
-        return True
-    else:
-        return False
+    return bool(calculated_signature == es_sig.removeprefix('sha256='))

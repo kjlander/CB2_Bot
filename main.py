@@ -3,7 +3,7 @@
 #          including greeting chat users, thanking followers, cheerers, and
 #          subscribers, and storing and executing custom text commands.
 # Author: Kyle Lander
-# Date: 2021-08
+# Date: 2021-11
 
 # TODO: Add sound alert functionality to notify the streamer of when someone
 #       in the chat says hi to them.
@@ -39,19 +39,20 @@ __location__ = os.path.realpath(
     os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 # Define some constants that are needed to connect to the servers.
-BOT_USERNAME = os.environ['BOT_USERNAME']
-CALLBACK = os.environ['CALLBACK']
-CHANNEL = f'#{os.environ["CHANNEL"]}'
-CLIENT_ID = os.environ['CLIENT_ID']
-AUTH = {'Accept': 'application/vnd.twitchtv.v5+json', 'Client-ID': CLIENT_ID}
-COOLDOWN = os.environ['COOLDOWN']
-DB = os.path.join(__location__, os.environ['DB'])
-ENDPOINT = 'https://api.twitch.tv/helix/eventsub/subscriptions'
-HTTP_PORT = int(os.environ['HTTP_PORT'])
+BOT_USERNAME        = os.environ['BOT_USERNAME']
+CALLBACK            = os.environ['CALLBACK']
+CHANNEL             = f'#{os.environ["CHANNEL"]}'
+CLIENT_ID           = os.environ['CLIENT_ID']
+AUTH                = {'Accept': 'application/vnd.twitchtv.v5+json',
+                       'Client-ID': CLIENT_ID}
+COOLDOWN            = os.environ['COOLDOWN']
+DB                  = os.path.join(__location__, os.environ['DB'])
+ENDPOINT            = 'https://api.twitch.tv/helix/eventsub/subscriptions'
+HTTP_PORT           = int(os.environ['HTTP_PORT'])
 IRC_CONNECTION_DATA = ('irc.chat.twitch.tv', 6667)
-OAUTH = f'oauth:{os.environ["OAUTH"]}'
-SECRET = os.environ['SECRET']
-APP_ACCESS_TOKEN = get_app_access_token(CLIENT_ID, SECRET)
+OAUTH               = f'oauth:{os.environ["OAUTH"]}'
+SECRET              = os.environ['SECRET']
+APP_ACCESS_TOKEN    = get_app_access_token(CLIENT_ID, SECRET)
 
 # This list contains all users that will be able to execute certain chat 
 # commands that should only be performed by moderators. Names will be 
@@ -80,10 +81,10 @@ seen_message_ids = []
 
 # Define a class that will keep track of when a command was last used and
 # determine if it can be used again by non-mod users.
-class CooldownHandler(object):
+class CooldownHandler:
     '''
     A class to keep track of cooldowns for IRC chat commands.
-    
+
     ...
 
     Attributes
@@ -99,11 +100,11 @@ class CooldownHandler(object):
     -------
     is_useable():
         Checks if more time than the cooldown length has passed since the
-        command was last used. Returns a boolean: True if the cooldown has 
+        command was last used. Returns a boolean: True if the cooldown has
         passed, False if the command is still on cooldown.
 
     '''
-    def __init__(self, command, cooldown):
+    def __init__(self, command: str, cooldown: int) -> None:
         '''
         Constructs the attriutes for the CooldownHandler object.
 
@@ -118,12 +119,12 @@ class CooldownHandler(object):
         self.cooldown = int(cooldown)
         self.last_used = time()
 
-    def is_useable(self):
+    def is_useable(self) -> bool:
         if time() > self.cooldown + self.last_used:
             self.last_used = time()
             return True
-        else:
-            return False
+
+        return False
 
 
 # Set up the request handler that will listen for requests from Twitch.
@@ -165,7 +166,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             print(f'STATE: {state}\n')
             print(f'LOCAL STATE: {os.environ["STATE"]}\n')
             print(f'CODE: {code}\n')
-        
+
             if state == os.environ['STATE']:
                 request_dict = {
                     'client_id': CLIENT_ID,
@@ -194,7 +195,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
-        post_data = self.rfile.read(content_length) # <--- Gets the data itself 
+        post_data = self.rfile.read(content_length) # <--- Gets the data itself
         logging.info('POST request,\nPath: %s\nHeaders:\n%s\n\nBody:\n%s\n',
                 str(self.path), str(self.headers), post_data.decode('utf-8'))
 
@@ -210,7 +211,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 print(f'Previously seen message ID: {message_id}, returning 200.\n')
 
             # Verify that the request came from Twitch.
-            elif verify_signature(SECRET, message_id, eventsub_timestamp, post_data, eventsub_signature) == True:                             
+            elif verify_signature(SECRET, message_id, eventsub_timestamp, post_data, eventsub_signature) == True:                      
                 seen_message_ids.append(message_id)
                 payload = json.loads(post_data)
 
@@ -279,7 +280,7 @@ thread.daemon = True
 
 
 # Define a function that adds a command to the database if it doesn't already exist.
-def add_command(message, cursor):
+def add_command(message: str, cursor: sqlite3.Cursor):
     # Split the message into a list.
     splitmsg = message.split(' ')
     # Check if this is to be a mod-only command (the 'mod' flag will be provided after the
@@ -293,76 +294,152 @@ def add_command(message, cursor):
         # Assemble the command contents into a string, starting index depends on whether
         # the 'mod' flag is present.
         content = ' '.join(splitmsg[3:])
-        
+
     else:
         mod = 0
         command = splitmsg[1].lower()
         content = ' '.join(splitmsg[2:])
 
     # Check if the command already exists.
-    cursor.execute('SELECT command FROM commands WHERE command = :command', 
+    cursor.execute('SELECT command FROM commands WHERE command = :command',
                   {'command': command})
     # Insert the new command if it doesn't already exist.
     if cursor.fetchone() == None:
-        cursor.execute('INSERT INTO commands (command, content, mod) VALUES (?, ?, ?)', 
+        cursor.execute('INSERT INTO commands (command, content, mod) VALUES (?, ?, ?)',
                         (command, content, mod))
         return True
 
-    else:
-        return False
+    return False
 
 
 # Schedule a job to clear out the seen_users list every day at midnight.
 def clear_seen_users():
     seen_users.clear()
     sendmsg('/me Seen users list cleared!')
-    return
 
 
 # Define a function that handles commands stored in the database.
-def command_handler(command, user, cursor):
+def command_handler(command: str, user: str, cursor: sqlite3.Cursor) -> str:
     # Try/except in case of sqlite3 error on query executon.
     try:
-        cursor.execute('SELECT command, content, mod FROM commands WHERE command = :command', 
+        cursor.execute('SELECT command, content, mod FROM commands WHERE command = :command',
                       {'command': command})
         row = cursor.fetchone()
         # Check if nothing was returned, meaning no command was found.
         if row == None:
-            return False
+            return None
 
         # Return any command if the user is a mod.
-        elif user in MODS:
+        if user in MODS:
             return row[1]
 
         # Non-mod commands are usable by anyone, but are subject to cooldowns.
-        elif row[2] == 0:
+        if row[2] == 0:
             # Check if a handler for the command already exists, and then
             # check to see if the command is on cooldown.
             if command in cooldown_handlers:
-                if cooldown_handlers[f'{command}'].is_useable():
+                cmd = cooldown_handlers[command]
+                if cmd.is_useable():
                     return row[1]
 
-                else:
-                    print(f'Command {command} on cooldown.\n')
+                print(f'Command {command} on cooldown.\n')
+                return None
+
             # Create a CooldownHander for the command,
             # then return the command since this will be its first use.
-            else:
-                cooldown_handlers[f'{command}'] = CooldownHandler(command, COOLDOWN)
-                return row[1]
-                
-        else:
-            print(f'command_handler: user {user} does not have permission to use !{command}.\n')
-            # Return True because the command does exist, the user just did not
-            # have permission to use it.
-            return True
+            cooldown_handlers[f'{command}'] = CooldownHandler(command, COOLDOWN)
+            return row[1]
+
+        print(f'command_handler: user {user} does not have permission to use !{command}.\n')
+        # Return None because the command does exist, the user just did not
+        # have permission to use it.
+        return None
 
     except sqlite3.Error:
-        print(f'SQLite3 Error raised, returning False.\n')
-        return False
+        print(f'SQLite3 Error raised, returning None.\n')
+        return None
+
+
+# Define a function that takes in text that is decorated with a leading "!", indicating that is
+# a command, and execute the appropriate command if it exists.
+def command(message: str, name: str, cursor: sqlite3.Cursor, dbconnection: sqlite3.Connection):
+    # Remove the leading !, save this in case it's a new command that needs added to the DB.
+    message = message[1:]
+    # Split the message on spaces and get just the first part (the command name).
+    cmd = message.split(' ')[0]
+    print(f'Command {cmd} received, issued by user {name}\n')
+
+    # This handles execution of all commands that are stored in the database.
+    # Used the walrus operator for simplicity.
+    if dbcmd := command_handler(cmd, name, cursor):
+        # Command did not exist or user did not have permission
+        # to execute the command.
+        if dbcmd == None:
+            pass
+        # Execute the command if one was returned.
+        else:
+            sendmsg(dbcmd)
+
+    # This block handles all the hardcoded commands.
+    # These commands are mod-only and are necessary for the
+    # core functionality of the bot. Commands have been arranged
+    # according to estimated frequency of use.
+
+    # Shoutout command for referring viewers to other streamers.
+    elif cmd == 'so' and name in MODS:
+        shoutout = message.split(' ')[1]
+        sendmsg(f'Check out {shoutout} at https://twitch.tv/{shoutout} !')
+
+    # Adds a new command to the database.
+    elif cmd == 'addcom' and name in MODS:
+        if add_command(message, cursor):
+            dbconnection.commit()
+        else:
+            print(f'Failed to add command {cmd}, it may already exist.\n')
+
+    # Deletes a command stored in the database.
+    elif cmd == 'delcom' and name in MODS:
+        delete_command(message, cursor)
+        dbconnection.commit()
+
+    # Subscribes the bot to the channel's 'follow' EventSub topic.
+    elif cmd == 'esfollow' and name in MODS:
+        print('Subscribing to EventSub Follow.\n')
+        # Accessing the env variable here because the CHANNEL variable has a leading '#'.
+        subscribe_to_eventsub(APP_ACCESS_TOKEN, CALLBACK, CLIENT_ID, SECRET,
+                            get_user_id(os.environ["CHANNEL"]), 'follow')
+
+    # Subscribes the bot to the channel's 'subscribe' and 'cheer' EventSub topics.
+    elif cmd == 'essub' and name in MODS:
+        print('Subscribing to EventSub Subscribe.\n')
+        subscribe_to_eventsub(APP_ACCESS_TOKEN, CALLBACK, CLIENT_ID, SECRET,
+                            get_user_id(os.environ["CHANNEL"]), 'subscribe')
+        print('Subscribing to EventSub Cheer.\n')
+        subscribe_to_eventsub(APP_ACCESS_TOKEN, CALLBACK, CLIENT_ID, SECRET,
+                            get_user_id(os.environ["CHANNEL"]), 'cheer')
+
+    # Unsubscribes the bot from all EventSub topics regardless of channel.
+    elif cmd == 'nukeeventsubs' and name in MODS:
+        print('Deleting all EventSub subscriptions.\n')
+        nuke_eventsubs(APP_ACCESS_TOKEN, CLIENT_ID)
+
+    # Disconnects the bot from Twitch chat, closes the database connection,
+    # and then performs the rest of the shut down tasks.
+    elif cmd == 'disconnect' and name in MODS:
+        dbconnection.close()
+        shut_down()
+
+    # Initiates the OIDC Authorization Code Flow process.
+    elif cmd == 'auth' and name in MODS:
+        os.environ['STATE'] = authorize(CALLBACK, CLIENT_ID)
+
+    else:
+        print(f'Command {cmd} is not a registered command, or {name} does '
+                'not have permission to use it, ignoring.\n')
 
 
 # Define a function that deletes a command if it exists.
-def delete_command(message, cursor):
+def delete_command(message: str, cursor: sqlite3.Cursor):
     # Split the message into a list.
     splitmsg = message.split(' ')
     # Get just the command name.
@@ -374,9 +451,9 @@ def delete_command(message, cursor):
 
 
 # Define a function to get a user ID specifically.
-def get_user_id(user, auth=AUTH):
+def get_user_id(user: str, auth: dict=AUTH) -> str:
     data = get_user_data(user, auth)
-
+    user_id = ''
     for i in data['users']:
         user_id = str(i['_id'])
 
@@ -384,13 +461,13 @@ def get_user_id(user, auth=AUTH):
 
 
 # Define a function to join a chat channel.
-def joinchan(chan=CHANNEL):
+def joinchan(chan: str=CHANNEL):
     ircserver.send(bytes('JOIN {}\r\n'.format(chan), 'UTF-8'))
     sendmsg('/me has joined the chat.')
 
 
 # Define a function to post messages in chat.
-def sendmsg(msg, target=CHANNEL):
+def sendmsg(msg: str, target: str=CHANNEL):
     ircserver.send(bytes('PRIVMSG {} :{}\r\n'.format(target, msg), 'UTF-8'))
 
 
@@ -431,83 +508,7 @@ def main():
 
             # If message starts with a !, indicating a bot command.
             if message[0] == '!':
-                # Remove the leading !, save this in case it's a new command that needs added.
-                message = message[1:]
-                # Split the message on spaces and get just the first part (the command name).
-                cmd = message.split(' ')[0]
-                print(f'Command {cmd} received, issued by user {name}\n')
-
-                # This handles execution of all commands that are stored in the database.
-                # Used the walrus operator for simplicity.
-                if dbcmd := command_handler(cmd, name, dbcursor):
-                    # This condition happens when the command exists, but the
-                    # user that invoked it didn't have permission to use it.
-                    if dbcmd == True:
-                        pass
-                    # No command found.
-                    elif dbcmd == False:
-                        pass
-                    # Execute the command if one was returned.
-                    else:
-                        sendmsg(dbcmd)
-
-                # This block handles all the hardcoded commands.
-                # These commands are mod-only and are necessary for the
-                # core functionality of the bot. Commands have been arranged
-                # according to estimated frequency of use.
-
-                # Shoutout command for referring viewers to other streamers.
-                elif cmd == 'so' and name in MODS:
-                    shoutout = message.split(' ')[1]
-                    sendmsg(f'Check out {shoutout} at https://twitch.tv/{shoutout} !')
-
-                # Adds a new command to the database.
-                elif cmd == 'addcom' and name in MODS:
-                    if add_command(message, dbcursor):
-                        dbconnection.commit()
-                    else:
-                        print(f'Failed to add command {cmd}, it may already exist.\n')
-
-                # Deletes a command stored in the database.
-                elif cmd == 'delcom' and name in MODS:
-                    delete_command(message, dbcursor)
-                    dbconnection.commit()
-
-                # Subscribes the bot to the channel's 'follow' EventSub topic.
-                elif cmd == 'esfollow' and name in MODS:
-                    print('Subscribing to EventSub Follow.\n')
-                    # Accessing the env variable here because the CHANNEL variable has a leading '#'.
-                    subscribe_to_eventsub(APP_ACCESS_TOKEN, CALLBACK, CLIENT_ID, SECRET, 
-                                        get_user_id(os.environ["CHANNEL"]), 'follow')
-
-                # Subscribes the bot to the channel's 'subscribe' and 'cheer' EventSub topics.
-                elif cmd == 'essub' and name in MODS:
-                    print('Subscribing to EventSub Subscribe.\n')
-                    subscribe_to_eventsub(APP_ACCESS_TOKEN, CALLBACK, CLIENT_ID, SECRET, 
-                                        get_user_id(os.environ["CHANNEL"]), 'subscribe')
-                    print('Subscribing to EventSub Cheer.\n')
-                    subscribe_to_eventsub(APP_ACCESS_TOKEN, CALLBACK, CLIENT_ID, SECRET, 
-                                        get_user_id(os.environ["CHANNEL"]), 'cheer')
-
-                # Unsubscribes the bot from all EventSub topics regardless of channel.
-                elif cmd == 'nukeeventsubs' and name in MODS:
-                    print('Deleting all EventSub subscriptions.\n')
-                    nuke_eventsubs(APP_ACCESS_TOKEN, CLIENT_ID)
-
-                # Disconnects the bot from Twitch chat, closes the database connection,
-                # and then performs the rest of the shut down tasks.
-                elif cmd == 'disconnect' and name in MODS:
-                    dbconnection.close()
-                    shut_down()
-
-                # Initiates the OIDC Authorization Code Flow process.
-                elif cmd == 'auth' and name in MODS:
-                    os.environ['STATE'] = authorize(CALLBACK, CLIENT_ID)
-
-                else:
-                    print(f'Command {cmd} is not a registered command, or {name} does '
-                          'not have permission to use it, ignoring.\n')
-                    pass
+                command(message, name, dbcursor, dbconnection)
 
             # See if the user is saying hi.
             elif any(word in message.lower() for word in GREETINGS):
@@ -515,7 +516,7 @@ def main():
                 # Say hi if the user has not been seen lately.
                 if name not in seen_users:
                     sendmsg('Hi {} :)'.format(name))
-                    seen_users.append(name) 
+                    seen_users.append(name)
 
         # Respond to ircserver pings to maintain connection.
         elif ircmsg.find('PING') != -1:
